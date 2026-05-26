@@ -503,7 +503,7 @@ def main():
     # 创建窗口
     window = ti.ui.Window("质点弹簧模型 - 布料模拟", (1280, 720), vsync=True)
     canvas = window.get_canvas()
-    scene = ti.ui.Scene()
+    scene = window.get_scene()
     camera = ti.ui.Camera()
 
     # 设置相机初始位置
@@ -518,7 +518,7 @@ def main():
 
     # GUI 参数存储（Python 侧）
     frame_count = 0
-    while window.running():
+    while window.running:
         # 处理重置
         if reset_flag[None] == 1:
             reset_cloth()
