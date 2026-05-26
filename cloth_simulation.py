@@ -220,9 +220,10 @@ def init_sphere_particles():
 @ti.func
 def clamp_velocity(v):
     speed = v.norm()
+    result = v
     if speed > max_velocity:
-        return v * (max_velocity / speed)
-    return v
+        result = v * (max_velocity / speed)
+    return result
 
 
 # ============================================================
@@ -297,18 +298,17 @@ def compute_spring_forces(positions, ks_structural, ks_shear_val, ks_bend_val):
 def handle_sphere_collision(p, v):
     to_center = p - sphere_center
     dist = to_center.norm()
+    p_new = p
+    v_new = v
     if dist < sphere_radius and dist > 1e-8:
         normal = to_center / dist
-        # 推出球体
         p_new = sphere_center + normal * sphere_radius
-        # 反射速度分量
         v_normal = v.dot(normal)
         if v_normal < 0.0:
-            v_new = v - v_normal * normal * 1.2  # 弹性系数
+            v_new = v - v_normal * normal * 1.2
         else:
             v_new = v
-        return p_new, v_new
-    return p, v
+    return p_new, v_new
 
 
 # ============================================================
@@ -448,6 +448,26 @@ def update_edge_vertices():
             edge_vertices[edge_count * 2] = pos[a]
             edge_vertices[edge_count * 2 + 1] = pos[b]
             edge_count += 1
+    # 渲染剪切弹簧边
+    if enable_shear_field[None] == 1:
+        offset = num_struct_springs[None]
+        for s in range(num_shear_springs[None]):
+            if edge_count < MAX_EDGES:
+                a = spring_a[offset + s]
+                b = spring_b[offset + s]
+                edge_vertices[edge_count * 2] = pos[a]
+                edge_vertices[edge_count * 2 + 1] = pos[b]
+                edge_count += 1
+    # 渲染弯曲弹簧边
+    if enable_bend_field[None] == 1:
+        offset = num_struct_springs[None] + num_shear_springs[None]
+        for s in range(num_bend_springs[None]):
+            if edge_count < MAX_EDGES:
+                a = spring_a[offset + s]
+                b = spring_b[offset + s]
+                edge_vertices[edge_count * 2] = pos[a]
+                edge_vertices[edge_count * 2 + 1] = pos[b]
+                edge_count += 1
     num_edges_to_render[None] = edge_count
 
 
@@ -482,7 +502,7 @@ def main():
 
     # 初始化 GUI 可控参数（Taichi field）
     kd_field[None] = 5.0
-    enable_collision_field[None] = 1
+    enable_collision_field[None] = 0
     enable_shear_field[None] = 1
     enable_bend_field[None] = 1
 
@@ -493,7 +513,7 @@ def main():
     print(f"总弹簧数: {num_struct_springs[None] + num_shear_springs[None] + num_bend_springs[None]}")
     print()
 
-    integrator_names = ["显式欧拉", "半隐式欧拉", "隐式欧拉"]
+    integrator_names = ["Explicit Euler", "Semi-Implicit Euler", "Implicit Euler"]
     print("控制说明:")
     print("  鼠标左键拖拽: 旋转视角")
     print("  鼠标滚轮: 缩放")
@@ -501,7 +521,7 @@ def main():
     print("  当前默认积分器:", integrator_names[integrator_type[None]])
 
     # 创建窗口
-    window = ti.ui.Window("质点弹簧模型 - 布料模拟", (1280, 720), vsync=True)
+    window = ti.ui.Window("Mass-Spring Cloth Simulation", (1280, 720), vsync=True)
     canvas = window.get_canvas()
     scene = window.get_scene()
     camera = ti.ui.Camera()
@@ -512,9 +532,8 @@ def main():
     camera.up(0.0, 1.0, 0.0)
 
     # 设置灯光
-    scene.point_light(pos=(2.0, 2.0, 2.0), color=(1.0, 1.0, 1.0))
-    scene.point_light(pos=(-1.0, 1.0, -1.0), color=(0.8, 0.8, 0.8))
-    scene.ambient_light((0.3, 0.3, 0.3))
+    scene.point_light(pos=(0.0, 5.0, 3.0), color=(0.8, 0.8, 0.8))
+    scene.ambient_light((0.5, 0.5, 0.5))
 
     # GUI 参数存储（Python 侧）
     frame_count = 0
@@ -524,28 +543,28 @@ def main():
             reset_cloth()
             reset_flag[None] = 0
 
-        # GUI 控制面板
-        with window.GUI.sub_window("积分器选择", 0.02, 0.02, 0.2, 0.14):
-            window.GUI.text("积分器选择")
-            if window.GUI.button("显式欧拉 (Explicit)"):
+        # GUI Control Panel
+        with window.GUI.sub_window("Integrator", 0.02, 0.02, 0.2, 0.14):
+            window.GUI.text("Integrator Select")
+            if window.GUI.button("1. Explicit Euler"):
                 integrator_type[None] = 0
-            if window.GUI.button("半隐式欧拉 (Semi-Imp)"):
+            if window.GUI.button("2. Semi-Implicit"):
                 integrator_type[None] = 1
-            if window.GUI.button("隐式欧拉 (Implicit)"):
+            if window.GUI.button("3. Implicit Euler"):
                 integrator_type[None] = 2
 
-        with window.GUI.sub_window("控制", 0.24, 0.02, 0.2, 0.12):
-            if window.GUI.button("暂停/继续"):
+        with window.GUI.sub_window("Control", 0.24, 0.02, 0.2, 0.12):
+            if window.GUI.button("Pause / Resume"):
                 paused[None] = 1 - paused[None]
-            if window.GUI.button("重置布料"):
+            if window.GUI.button("Reset Cloth"):
                 reset_flag[None] = 1
-            status = "暂停" if paused[None] == 1 else "运行中"
-            window.GUI.text(f"状态: {status}")
-            window.GUI.text(f"帧数: {frame_count}")
+            status = "Paused" if paused[None] == 1 else "Running"
+            window.GUI.text(f"Status: {status}")
+            window.GUI.text(f"Frame: {frame_count}")
 
-        with window.GUI.sub_window("参数", 0.02, 0.18, 0.2, 0.26):
-            window.GUI.text(f"积分器: {integrator_names[integrator_type[None]]}")
-            window.GUI.text(f"阻尼系数 kd: {kd_field[None]:.1f}")
+        with window.GUI.sub_window("Params", 0.02, 0.18, 0.2, 0.26):
+            window.GUI.text(f"Integrator: {integrator_names[integrator_type[None]]}")
+            window.GUI.text(f"Damping kd: {kd_field[None]:.1f}")
             if window.GUI.button("kd=1.0"):
                 kd_field[None] = 1.0
             if window.GUI.button("kd=5.0"):
@@ -553,12 +572,12 @@ def main():
             if window.GUI.button("kd=10.0"):
                 kd_field[None] = 10.0
 
-        with window.GUI.sub_window("选做功能", 0.02, 0.46, 0.2, 0.18):
-            if window.GUI.button("剪切弹簧: " + ("ON" if enable_shear_field[None] == 1 else "OFF")):
+        with window.GUI.sub_window("Extras", 0.02, 0.46, 0.2, 0.18):
+            if window.GUI.button("Shear: " + ("ON" if enable_shear_field[None] == 1 else "OFF")):
                 enable_shear_field[None] = 1 - enable_shear_field[None]
-            if window.GUI.button("弯曲弹簧: " + ("ON" if enable_bend_field[None] == 1 else "OFF")):
+            if window.GUI.button("Bending: " + ("ON" if enable_bend_field[None] == 1 else "OFF")):
                 enable_bend_field[None] = 1 - enable_bend_field[None]
-            if window.GUI.button("球体碰撞: " + ("ON" if enable_collision_field[None] == 1 else "OFF")):
+            if window.GUI.button("Collision: " + ("ON" if enable_collision_field[None] == 1 else "OFF")):
                 enable_collision_field[None] = 1 - enable_collision_field[None]
 
         # 物理更新
@@ -582,23 +601,19 @@ def main():
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
         scene.set_camera(camera)
 
-        # 渲染布料网格
-        scene.mesh(cloth_vertices, cloth_triangles, color=(0.3, 0.6, 0.9),
-                   two_sided=True, show_wireframe=False)
+        # 渲染质点（小球）
+        scene.particles(pos, radius=0.005, color=(0.2, 0.4, 1.0))
 
-        # 渲染弹簧边（线框）
+        # 渲染弹簧（线）
         if num_edges_to_render[None] > 0:
-            scene.lines(edge_vertices, width=0.5,
-                       color=(0.0, 0.0, 0.0),
+            scene.lines(edge_vertices, width=1.5,
+                       color=(0.8, 0.8, 0.8),
                        vertex_count=num_edges_to_render[None] * 2)
 
-        # 渲染固定点（顶部两行用红色标记）
-        scene.particles(pos, radius=0.005, color=(0.9, 0.2, 0.2))
-
-        # 渲染球体
+        # 渲染碰撞球体（用更小更暗的粒子）
         if enable_collision_field[None] == 1:
-            scene.particles(sphere_particles, radius=0.008,
-                           color=(0.9, 0.7, 0.1))
+            scene.particles(sphere_particles, radius=0.005,
+                           color=(0.6, 0.4, 0.2))
 
         # 渲染到画布
         canvas.scene(scene)
